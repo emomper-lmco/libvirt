@@ -1,0 +1,79 @@
+stages:
+    - build
+    - test
+    - integration
+    - deploy
+    - regression-loop
+    - regression-ltp
+variables:
+    VERSION: "4.5.0"
+    ENV_VERSION: "7.5"
+    GIT_DEPTH: 10
+docker-build:
+    image: registry.oa.net:5000/lmco/builder-base-image/rhel${ENV_VERSION}:${VERSION}
+    stage: build
+    variables:
+        GIT_SUBMODULE_STRATEGY: recursive
+    before_script:
+        - ./autogen.sh > /dev/null
+        - make -j 8
+    script:
+        - VIR_TEST_DEBUG=2 LIBVIRT_DEBUG=1 LIBVIRT_LOG_FILTERS="1:sre 4:libvirt 4:util 4:config" LIBVIRT_LOG_OUTPUTS="1:file:/home/builder/tests/test.log 1:stderr"  ./tests/sretest
+        - cp libvirt.spec libvirt.spec.copy
+#        - sed -i '/%check/,/fi/d' libvirt.spec    
+        - make dist -j 8
+        - rpmbuild -ta "libvirt-${VERSION}.tar.xz"
+        - cp -r /root/rpmbuild/RPMS/x86_64/ .
+        - mv libvirt.spec.copy libvirt.spec
+    artifacts:
+        when: on_failure
+        expire_in: 1 week
+        paths:
+            - tests/test.log
+        when: on_success
+        expire_in: 1 week
+        paths:
+            - x86_64/
+           
+    only:
+        - tags
+        - branches
+        - merge_requests
+        - web
+    tags:
+         - docker
+deploy:
+    stage: deploy
+    script: 
+        - scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=1  x86_64/* root@registry.oa.net:/opt/yum/registry.oa.net/testing/CentOS/7Server
+        - ssh root@registry.oa.net 'createrepo --update /opt/yum/registry.oa.net/testing/CentOS/7Server'
+    dependencies:
+        - docker-build
+    only:
+        - schedules
+        - web
+
+test:
+    image: registry.oa.net:5000/lmco/builder-base-image/rhel${ENV_VERSION}:${VERSION}
+    stage: test
+    variables:
+        GIT_SUBMODULE_STRATEGY: recursive
+    before_script:
+        - ./autogen.sh > /dev/null
+        - ./configure --enable-test-coverage --without-dtrace
+    script:
+      - make -j8  coverage
+    artifacts:
+        when: always
+        expire_in: 1 week
+        paths:
+            - doc/
+           
+    only:
+        - tags
+        - schedules
+        - merge_requests
+        - web
+    tags:
+         - docker
+

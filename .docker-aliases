@@ -1,0 +1,2 @@
+alias add-gdb="sed -i '/exec.*progdir.*program.*/i gdb \$progdir/\$program' $1"
+alias test-log="VIR_TEST_DEBUG=2 LIBVIRT_LOG_FILTERS="1:sre" LIBVIRT_LOG_OUTPUTS="1:file:/home/builder/tests/test.log" $1"
